@@ -55,7 +55,7 @@ class Downtime:
         # engine.resource_manager.available_nodes[:] = []
 
         for job in engine.running:
-            job._state = JobState.CANCELLED
+            job.current_state = JobState.PENDING  # requeued below
             engine.power_manager.set_idle(job.scheduled_nodes)
             engine.resource_manager.free_nodes_from_job(job)
 

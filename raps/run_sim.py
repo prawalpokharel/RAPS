@@ -195,7 +195,7 @@ def run_sim(sim_config: SingleSimConfig):
 
             scheduler_running_history = pd.DataFrame(engine.get_scheduler_running_history())
             scheduler_running_history.to_csv(out / "running_history.csv", index=False)
-            scheduler_queue_history = pd.DataFrame(engine.get_scheduler_running_history())
+            scheduler_queue_history = pd.DataFrame(engine.get_scheduler_queue_history())
             scheduler_queue_history.to_csv(out / "queue_history.csv", index=False)
 
             try:

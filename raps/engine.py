@@ -973,8 +973,8 @@ class Engine:
 
     def record_util_stats(self, *, system_util):
         self.sys_util_history.append((self.current_timestep, system_util))
-        self.scheduler_queue_history.append(len(self.running))
-        self.scheduler_running_history.append(len(self.queue))
+        self.scheduler_queue_history.append(len(self.queue))
+        self.scheduler_running_history.append(len(self.running))
 
     def record_network_stats(self, *,
                              avg_tx,
