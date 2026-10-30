@@ -907,7 +907,7 @@ class Engine:
                     cursor = r
 
             # 1. Prepare Timestep:
-            completed_jobs, killed_jobs, need_reschedule = self.prepare_timestep(jobs=jobs)
+            completed_jobs, killed_jobs, need_reschedule = self.prepare_timestep(replay=replay, jobs=jobs)
 
             # 2. Identify eligible jobs and add them to the queue.
             has_new_additions = self.add_eligible_jobs_to_queue(jobs)
