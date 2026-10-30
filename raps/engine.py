@@ -503,7 +503,7 @@ class Engine:
         if not replay:
             killed_jobs = [job for job in self.running if
                            job.end_time is not None
-                           and job.start_time + job.time_limit <= job.current_run_time]
+                           and job.current_run_time >= job.time_limit]
         else:
             killed_jobs = []
 
