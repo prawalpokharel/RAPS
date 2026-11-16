@@ -282,8 +282,26 @@ class PowerManager:
 
         node_indices = linear_to_3d_index(flattened_nodes, self.config['SC_SHAPE'])
         power_value, sivoc_loss = self.power_func(cpu_util_flat, gpu_util_flat, net_util_flat, self.config)
-        self.power_state[node_indices] = power_value
-        self.sivoc_loss[node_indices] = sivoc_loss
+        uniq, inverse = np.unique(flattened_nodes, return_inverse=True)
+        if uniq.size < flattened_nodes.size and self.power_func in (compute_node_power,
+                                                                    compute_node_power_uncertainties):
+            # Several jobs share a node (multitenant systems). Assigning each job's power to the node
+            # would keep only the last job's share, so sum utilisation per node first.
+            cpu_node = np.zeros(uniq.size)
+            gpu_node = np.zeros(uniq.size)
+            net_node = np.zeros(uniq.size)
+            np.add.at(cpu_node, inverse, cpu_util_flat.astype(float))
+            np.add.at(gpu_node, inverse, gpu_util_flat.astype(float))
+            np.maximum.at(net_node, inverse, net_util_flat.astype(float))
+            cpu_node = np.minimum(cpu_node, self.config['CPUS_PER_NODE'])
+            gpu_node = np.minimum(gpu_node, self.config['GPUS_PER_NODE'])
+            node_power, node_loss = self.power_func(cpu_node, gpu_node, net_node, self.config)
+            uniq_indices = linear_to_3d_index(uniq, self.config['SC_SHAPE'])
+            self.power_state[uniq_indices] = node_power
+            self.sivoc_loss[uniq_indices] = node_loss
+        else:
+            self.power_state[node_indices] = power_value
+            self.sivoc_loss[node_indices] = sivoc_loss
         return power_value[np.cumsum(job_lengths) - 1]
 
     def calculate_rectifiers_needed(self, power_state_summed):
