@@ -1,6 +1,7 @@
 import random
 from raps.job import JobState
 from raps.policy import PolicyType
+from raps.resmgr.criticality import CriticalityScorer, fattree_domain_weights
 
 
 class ExclusiveNodeResourceManager:
@@ -8,9 +9,10 @@ class ExclusiveNodeResourceManager:
     Legacy exclusive-node resource manager: allocates and frees full nodes.
     """
 
-    PLACEMENTS = ("first", "random")
+    PLACEMENTS = ("first", "random", "cei")
 
-    def __init__(self, total_nodes, down_nodes, config=None, node_placement="first", seed=None):
+    def __init__(self, total_nodes, down_nodes, config=None, node_placement="first", seed=None,
+                 critical_nodes=()):
         if node_placement not in self.PLACEMENTS:
             raise ValueError(f"node_placement must be one of {self.PLACEMENTS}, not {node_placement!r}")
         self.node_placement = node_placement
@@ -18,6 +20,9 @@ class ExclusiveNodeResourceManager:
         self.total_nodes = total_nodes
         self.down_nodes = set(down_nodes)
         self.config = config or {}
+        self.criticality = None
+        if node_placement == "cei":
+            self._setup_criticality(critical_nodes)
 
         # Determine per-node capacities
         cfg = self.config
@@ -60,6 +65,11 @@ class ExclusiveNodeResourceManager:
             picked = set(self._rng.sample(self.available_nodes, job.nodes_required))
             job.scheduled_nodes = sorted(picked)
             self.available_nodes = [n for n in self.available_nodes if n not in picked]
+        elif self.node_placement == "cei":
+            # Criticality-aware: fewest failure domains, chosen by the CEI objective (see criticality.py)
+            picked = set(self._pick_cei(job.nodes_required))
+            job.scheduled_nodes = sorted(picked)
+            self.available_nodes = [n for n in self.available_nodes if n not in picked]
         else:
             # Count-based allocation: take the first N free nodes
             job.scheduled_nodes = self.available_nodes[:job.nodes_required]
@@ -70,6 +80,48 @@ class ExclusiveNodeResourceManager:
         if job.expected_run_time:
             job.end_time = current_time + job.expected_run_time  # This may be an assumption!
         job.current_state = JobState.RUNNING
+
+    def _setup_criticality(self, critical_nodes=()):
+        """Failure domains are edge switches on a fat-tree (k/2 consecutive nodes), single nodes otherwise."""
+        cfg = self.config
+        weights = None
+        if cfg.get("TOPOLOGY") == "fat-tree" and cfg.get("FATTREE_K"):
+            self.domain_size = int(cfg["FATTREE_K"]) // 2
+            weights = fattree_domain_weights(int(cfg["FATTREE_K"]), self.total_nodes)
+        else:
+            self.domain_size = 1
+        num_domains = -(-self.total_nodes // self.domain_size)
+        critical = {int(n) // self.domain_size for n in critical_nodes}
+        self.criticality = CriticalityScorer(num_domains, critical_units=sorted(critical), unit_weights=weights)
+
+    def _pick_cei(self, count):
+        """Pack ``count`` whole nodes into as few failure domains as possible; the CEI score picks which."""
+        size = self.domain_size
+        num_domains = self.criticality.num_units
+        free = [[] for _ in range(num_domains)]
+        for n in sorted(self.available_nodes):
+            free[n // size].append(n)
+        busy = [0.0] * num_domains
+        for n in range(self.total_nodes):
+            if n not in self.down_nodes:
+                busy[n // size] += 1.0
+        for d, nodes in enumerate(free):
+            busy[d] -= len(nodes)
+        picked, remaining = [], count
+        while remaining > 0:
+            counts = [len(f) for f in free]
+            fits = [d for d in range(num_domains) if counts[d] >= remaining]
+            if fits:
+                candidates, take = fits, remaining
+            else:
+                most = max(counts)
+                candidates, take = [d for d in range(num_domains) if counts[d] == most], most
+            d = self.criticality.pick(busy, candidates, take)
+            picked.extend(free[d][:take])
+            free[d] = free[d][take:]
+            busy[d] += take
+            remaining -= take
+        return picked
 
     def free_nodes_from_job(self, job):
         """Frees the full nodes previously allocated to a job."""

@@ -16,6 +16,7 @@ from raps.job import Job, JobState
 from raps.policy import PolicyType
 from raps.utils import (
     summarize_ranges,
+    expand_ranges,
     get_current_utilization,
     WorkloadData,
 )
@@ -346,6 +347,7 @@ class Engine:
             config=self.config,
             node_placement=sim_config.node_placement,
             seed=sim_config.seed,
+            critical_nodes=expand_ranges(sim_config.critical_nodes.split(",")) if sim_config.critical_nodes else (),
         )
         # Initialize running and queue, etc.
         self.running = []

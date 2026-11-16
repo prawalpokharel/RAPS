@@ -1,6 +1,9 @@
+import random
+
 import numpy as np
 from ..job import JobState
 from scipy.stats import weibull_min
+from .criticality import CriticalityScorer
 
 
 def assert_node_accounting_ok(node):
@@ -13,7 +16,13 @@ class MultiTenantResourceManager:
     Resource manager for per-node CPU/GPU multitenancy.
     """
 
-    def __init__(self, total_nodes, down_nodes, config):
+    PLACEMENTS = ("first", "random", "cei")
+
+    def __init__(self, total_nodes, down_nodes, config, node_placement="first", seed=None, critical_nodes=()):
+        if node_placement not in self.PLACEMENTS:
+            raise ValueError(f"node_placement must be one of {self.PLACEMENTS}, not {node_placement!r}")
+        self.node_placement = node_placement
+        self._rng = random.Random(seed)
         self.total_nodes = total_nodes
         self.config = config
         self.down_nodes = set(down_nodes)
@@ -41,6 +50,34 @@ class MultiTenantResourceManager:
 
         # List of up nodes for quick enumeration
         self.available_nodes = [n['id'] for n in self.nodes if not n['is_down']]
+        self.criticality = None
+        if node_placement == "cei":
+            self.criticality = CriticalityScorer(self.total_nodes, critical_units=critical_nodes)
+
+    def _fits(self, node, job):
+        return (not node['is_down'] and
+                node['available_cpu_cores'] >= job.cpu_cores_required and
+                node['available_gpu_units'] >= job.gpu_units_required)
+
+    def select_node(self, job):
+        """Node for a job under the configured placement, or None when no node has room.
+
+        "first" takes the lowest-numbered node with room (the behaviour before placements existed),
+        "random" a uniformly random one, "cei" the one with the best criticality score (criticality.py),
+        with load measured in GPUs (cores on CPU-only systems).
+        """
+        if self.node_placement == "first":
+            return next((n['id'] for n in self.nodes if self._fits(n, job)), None)
+        fits = [n['id'] for n in self.nodes if self._fits(n, job)]
+        if not fits:
+            return None
+        if self.node_placement == "random":
+            return self._rng.choice(fits)
+        use_gpu = self.config.get('GPUS_PER_NODE', 0) > 0
+        load = np.array([(n['total_gpu_units'] - n['available_gpu_units']) if use_gpu
+                         else (n['total_cpu_cores'] - n['available_cpu_cores']) for n in self.nodes], dtype=float)
+        demand = job.gpu_units_required if use_gpu else job.cpu_cores_required
+        return self.criticality.pick(load, fits, max(demand, 1))
 
     def assign_nodes_to_job(self, job, current_time, node_id=None):
         """Assigns cores/GPUs to a job on one eligible node."""

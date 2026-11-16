@@ -113,6 +113,8 @@ class Scheduler:
 
     def check_available_nodes(self, job):
         """Checks if there are available resources (CPU cores, GPU units) for the job on any node."""
+        if hasattr(self.resource_manager, "select_node"):
+            return self.resource_manager.select_node(job)  # honours --node-placement
         # Iterate through all nodes managed by the ResourceManager
         for node in self.resource_manager.nodes:
             if self.debug:

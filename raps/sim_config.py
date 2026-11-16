@@ -259,14 +259,19 @@ class SimConfig(RAPSBaseModel, abc.ABC):
     """ Schedule policy """
     backfill: str | None = None
     """ Backfill policy """
-    node_placement: Literal["first", "random"] = "first"
+    node_placement: Literal["first", "random", "cei"] = "first"
     """
     Which free nodes a scheduled job gets (replayed jobs keep the nodes they really ran on).
     "first": the lowest-numbered free nodes, which packs the bottom of the machine.
     "random": a uniformly random choice among the free nodes (seeded by --seed), scattered the way Slurm's
     placement ends up on a busy machine such as Frontier. It matters for network congestion and for
     the load per rack.
+    "cei": criticality-aware. Spreads load over failure domains (edge switches on a fat-tree, nodes
+    otherwise), keeps it off --critical-nodes and packs each job into as few domains as it can
+    (see raps/resmgr/criticality.py). Applies to multitenant systems too.
     """
+    critical_nodes: str | None = None
+    """ Nodes marked critical for --node-placement cei, as ranges, e.g. "0-46,100" """
 
     # Arrival
     arrival: Literal["prescribed", "poisson"] = "prescribed"
